@@ -1,35 +1,39 @@
 #!/usr/bin/env python3
 import json, sys
 
-COMPOUND_OFFSET = {"SOFT": -1.5, "MEDIUM": 0.0, "HARD": 0.8}
-DEG_RATE        = {"SOFT":  0.10, "MEDIUM": 0.05, "HARD": 0.02}
+COMPOUND_OFFSET = {"SOFT": -15.0, "MEDIUM": 0.0, "HARD": 11.0}
+DEG_RATE        = {"SOFT": 0.5,   "MEDIUM": 0.08, "HARD": 0.02}
 TEMP_REF        = 30.0
-TEMP_FACTOR     = 0.02
+TEMP_FACTOR     = 0.0
 
-def compute_driver_total_time(strategy, config):
-    base      = config["base_lap_time"]
-    laps      = config["total_laps"]
-    pit_time  = config["pit_lane_time"]
-    temp_mult = 1.0 + (config["track_temp"] - TEMP_REF) * TEMP_FACTOR
-    pit_sched = {p["lap"]: p["to_tire"] for p in strategy.get("pit_stops", [])}
-    tire, age, total = strategy["starting_tire"], 0, 0.0
-    for lap in range(1, laps + 1):
-        age   += 1
-        total += base + COMPOUND_OFFSET[tire] + age * DEG_RATE[tire] * temp_mult
-        if lap in pit_sched:
-            total += pit_time
-            tire, age = pit_sched[lap], 0
-    return total
+def simulate_race(race_input):
+    c    = race_input["race_config"]
+    base = c["base_lap_time"]
+    laps = c["total_laps"]
+    pit  = c["pit_lane_time"]
+    tm   = 1.0 + (c["track_temp"] - TEMP_REF) * TEMP_FACTOR
+    times = {}
+    grid  = {}
+    for pos_key, s in race_input["strategies"].items():
+        did       = s["driver_id"]
+        grid[did] = int(pos_key[3:])
+        ps        = {p["lap"]: p["to_tire"] for p in s.get("pit_stops", [])}
+        tire, age, t = s["starting_tire"], 0, 0.0
+        for lap in range(1, laps + 1):
+            age += 1
+            t   += base + COMPOUND_OFFSET[tire] + age * DEG_RATE[tire] * tm
+            if lap in ps:
+                t   += pit
+                tire = ps[lap]
+                age  = 0
+        times[did] = t
+    return {
+        "race_id":             race_input["race_id"],
+        "finishing_positions": sorted(times, key=lambda d: (times[d], grid[d]))
+    }
 
 def main():
-    data   = json.loads(sys.stdin.read())
-    config = data["race_config"]
-    times  = {s["driver_id"]: compute_driver_total_time(s, config)
-              for s in data["strategies"].values()}
-    print(json.dumps({
-        "race_id":             data["race_id"],
-        "finishing_positions": sorted(times, key=times.__getitem__)
-    }))
+    print(json.dumps(simulate_race(json.loads(sys.stdin.read()))))
 
 if __name__ == "__main__":
     main()
